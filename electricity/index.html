@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>US Energy Consumption</title>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" type="text/css" href="libs/dc/2.0.0-beta.25/dc.min.css"></link>
+  </head>
+  <style>
+    .parent {
+      margin-bottom: 15px;
+      padding: 10px;
+      color: #0A416B;
+      clear:both;
+    }
+    .left {
+      float:left;
+      border:1px solid #CEDCEA; 
+      padding:5px;
+    } 
+    .right{
+      float:left;
+      border:1px solid #CEDCEA; 
+      padding:5px;
+    } 
+  </style>
+  <body>
+    <h1>US Energy Consumption DashBoard</h1>
+    Data downloaded from <a href="http://www.eia.gov/electricity/data/browser/">EIA</a>
+    <br>
+    <div class="parent">
+      <div class="left">
+        <div id="consumption_timechart">
+          <h4>Energy breakdown</h4>
+        </div><br>
+        <div id="totalRangeChart">
+          <h4>Total energy
+            <a class="reset"
+              href="javascript:totalRangeChart.filterAll();dc.redrawAll();"
+              style="display: none;">
+              reset
+            </a>
+          </h4>
+        </div>
+      </div>
+      <div class="right">
+        <div id="consumption_piechart">
+          <h4>Energy consumption pie chart
+          <a class="reset"
+            href="javascript:consumption_piechart.filterAll();dc.redrawAll();"
+            style="display: none;">
+            reset
+          </a>
+          </ht>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+
+<script type="text/javascript" src="libs/d3/3.5.14/d3.min.js"></script>
+<script type="text/javascript" src="libs/crossfilter/1.3.12/crossfilter.min.js"></script>
+<script type="text/javascript" src="libs/dc/2.0.0-beta.25/dc.min.js"></script>
+<script type="text/javascript" src="libs/melt/melt.js"></script>
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.8.3/underscore-min.js"></script>
+<script type="text/javascript">
+  var data;
+  var dateFormat = d3.time.format('%Y-%m-%d %H:%M:%S');
+  var consumption_timechart = dc.compositeChart("#consumption_timechart");
+  var consumption_piechart = dc.pieChart("#consumption_piechart");
+  var totalRangeChart = dc.barChart('#totalRangeChart');
+  d3.csv("data/US_electricity.csv",function(csv){
+    csv.forEach(function(d) {
+        d["datetime"] = dateFormat.parse(d["datetime"]);
+        d["coal"] = parseFloat(d["United States : coal thousand megawatthours"]);
+        d["natgas"] = parseFloat(d["United States : natural gas thousand megawatthours"]);
+        d["nuclear"] = parseFloat(d["United States : nuclear thousand megawatthours"]);
+        d["hydro"] = parseFloat(d["United States : conventional hydroelectric thousand megawatthours"]);
+        d["wind"] = parseFloat(d["United States : wind thousand megawatthours"]);
+        d["solar"] = parseFloat(d["United States : all solar thousand megawatthours"]);
+
+        d["others"] = parseFloat(d["United States : all fuels (utility-scale) thousand megawatthours"]) - (d["coal"] + d["natgas"]+d["nuclear"] + d["hydro"] + d["wind"] + d["solar"]);
+
+        delete d["United States : all fuels (utility-scale) thousand megawatthours"];
+        delete d["United States : coal thousand megawatthours"];
+        delete d["United States : natural gas thousand megawatthours"];
+        delete d["United States : nuclear thousand megawatthours"];
+        delete d["United States : conventional hydroelectric thousand megawatthours"];
+        delete d["United States : wind thousand megawatthours"];
+        delete d["United States : all solar thousand megawatthours"];
+      })
+    csv = melt(csv,["datetime"]);
+    data = csv;
+    var ndx = crossfilter(csv);
+    var all = ndx.groupAll();
+
+    var powerDim = ndx.dimension(function(d) { return d.variable; });
+
+    var powerDimGroup = powerDim.group().reduce(
+          function(p,v){ p += v.value;return p },
+          function(p,v){ p -= v.value;return p },
+          function(){ return 0; });
+
+    var timeDim = ndx.dimension(function(d) { return d.datetime; });
+
+    var timeDimGroup = {}
+
+    function createGroup(dim, choice) {
+      return dim.group().reduce(
+          function(p,v){ if (v.variable == choice) {p += v.value};return p},
+          function(p,v){ if (v.variable == choice) {p -= v.value};return p},
+          function(){ return 0; });
+    }
+
+    var choices = ["others", "coal", "natgas", "nuclear", "hydro", "wind", "solar"];
+
+    for (var k in choices) {
+      var choice = choices[k];
+      timeDimGroup[choice] = createGroup(timeDim, choice);
+    }
+
+    var time_min = d3.min(_.pluck(csv,"datetime"));
+    var time_max = d3.max(_.pluck(csv,"datetime"));
+    consumption_timechart
+      .dimension(timeDim)
+      //.group(timeDimGroup["solar"],"solar")
+      //.group(timeDimGroup["others"],"others")
+      //.stack(timeDimGroup["coal"],"coal", function (d) { return d.value; })
+      //.stack(timeDimGroup["natgas"],"natgas", function (d) { return d.value; })
+      //.stack(timeDimGroup["nuclear"],"nuclear", function (d) { return d.value; })
+      //.stack(timeDimGroup["hydro"],"hydro", function (d) { return d.value; })
+      //.stack(timeDimGroup["wind"],"wind", function (d) { return d.value; })
+      //.stack(timeDimGroup["solar"],"solar", function (d) { return d.value; })
+      .width(1000)
+      .height(500)
+      .margins({top: 10, right: 50, bottom: 30, left: 100})
+      .x(d3.time.scale().domain([time_min, time_max]))
+      .elasticY(true)
+      .yAxisLabel("energy (kMWhr)")
+      .xAxisLabel("time")
+      .legend(dc.legend().x(800).y(10).itemHeight(13).gap(5))
+      .transitionDuration(500)
+      .xUnits(d3.time.months)
+      .renderTitle(true)
+      .renderHorizontalGridLines(true)
+      .renderVerticalGridLines(true)
+      .brushOn(false)
+      .rangeChart(totalRangeChart)
+      .compose([
+          dc.lineChart(consumption_timechart).colors("red").dimension(timeDim).group(timeDimGroup["others"], "others"),
+          dc.lineChart(consumption_timechart).colors("blue").dimension(timeDim).group(timeDimGroup["coal"], "coal"),
+          dc.lineChart(consumption_timechart).colors("green").dimension(timeDim).group(timeDimGroup["natgas"], "natgas"),
+          dc.lineChart(consumption_timechart).colors("orange").dimension(timeDim).group(timeDimGroup["nuclear"], "nuclear"),
+          dc.lineChart(consumption_timechart).colors("purple").dimension(timeDim).group(timeDimGroup["hydro"], "hydro"),
+          dc.lineChart(consumption_timechart).colors("grey").dimension(timeDim).group(timeDimGroup["wind"], "wind"),
+          dc.lineChart(consumption_timechart).colors("black").dimension(timeDim).group(timeDimGroup["solar"], "solar"),
+          ])
+
+    var timeDimGroup = {}
+
+    function createGroup(dim, choice) {
+      return dim.group().reduce(
+          function(p,v){ if (v.variable == choice) {p += v.value};return p},
+          function(p,v){ if (v.variable == choice) {p -= v.value};return p},
+          function(){ return 0; });
+    }
+
+    var totalGroup = timeDim.group().reduce(
+        function(p,v) { p += v.value;return p},
+        function(p,v) { p -= v.value;return p},
+        function(p,v) {return 0;}
+        )
+     
+    totalRangeChart.width(1000) /* dc.barChart('#monthly-volume-chart', 'chartGroup'); */
+      .height(200)
+      .margins({top: 0, right: 50, bottom: 20, left: 110})
+      .dimension(timeDim)
+      .group(totalGroup)
+      .centerBar(true)
+      .gap(1)
+      .x(d3.time.scale().domain([time_min, time_max]))
+      .round(d3.time.month.round)
+      .alwaysUseRounding(true)
+      .xUnits(d3.time.months)
+
+    consumption_piechart
+      .width(700)
+      .height(773)
+      .dimension(powerDim)
+      .group(powerDimGroup)
+      .label(function(d) {
+          if (consumption_piechart.hasFilter() && !consumption_piechart.hasFilter(d.key)) {
+          return d.key + '(0)';
+          }
+          var label = d.key;
+          if (all.value()) {
+          //label += '(' + Math.floor(d.value / all.value() * 100) + '%)';
+          label += ":  "+d.value;
+          }
+          return label
+      })
+
+    //consumption_piechart.render()
+    dc.renderAll();
+  })
+</script>
